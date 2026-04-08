@@ -1,0 +1,10 @@
+name: dashboard
+title:
+username: pedrocastroortega
+account: pedrocastroortega
+server: shinyapps.io
+hostUrl: https://api.shinyapps.io/v1
+appId: 17081375
+bundleId: 11819652
+url: https://pedrocastroortega.shinyapps.io/dashboard/
+version: 1
