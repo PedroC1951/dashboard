@@ -7,10 +7,15 @@ library(dplyr)
 library(tidyr)
 library(sf)
 
+
 # --- CONFIGURACIÓN DE COLORES ---
 col_hombres <- "#009EDB"
 col_mujeres <- "#E5243B"
 
+col_hombres_ocu <- "#009EDB"      # Azul original
+col_hombres_no  <- "#80CFF0"      # Azul claro
+col_mujeres_ocu <- "#E5243B"      # Rojo original
+col_mujeres_no  <- "#F28B99"
 # CARGA
 mapa <- readRDS("data/mapa_ready.rds")
 datos <- read_parquet("data/bd_resumen.parquet")
@@ -43,7 +48,7 @@ ui <- page_sidebar(
     ),
     
     value_box(
-      title = span("Brecha de género", style = "font-size: 0.9rem; color: #444;"),
+      title = span("Brecha de Sexo", style = "font-size: 0.9rem; color: #444;"),
       value = uiOutput("brecha"),
       p("Diferencia hombres - mujeres", style = "font-size: 0.8rem; color: #666; margin-top: 5px;")
     ),
@@ -109,6 +114,7 @@ server <- function(input, output, session) {
   })
 
   observe({
+    # 1. Preparar datos del mapa
     mapa_vals <- datos_reactivos()$filtrado %>%
       group_by(CVEGEO, NOMGEO, sexo_lab) %>%
       summarise(prom_horas = sum(cuidados_total) / sum(peso_cuidadores), .groups = "drop") %>%
@@ -118,6 +124,7 @@ server <- function(input, output, session) {
     mapa_data <- mapa %>% left_join(mapa_vals, by = "CVEGEO")
     pal <- colorNumeric("Purples", mapa_data$prom_general, na.color = "transparent")
     
+    # 2. Actualizar visualización con Proxy
     proxy <- leafletProxy("mapa", data = mapa_data) %>%
       clearShapes() %>%
       addPolygons(
@@ -132,34 +139,65 @@ server <- function(input, output, session) {
         ) %>% lapply(htmltools::HTML),
         labelOptions = labelOptions(direction = "auto")
       )
-  })
-
-  output$serie <- renderPlotly({
-    df_serie <- datos_reactivos()$general %>% 
-      group_by(anio, sexo_lab) %>%
-      summarise(
-        Ocupado = sum(cuidados_ocu) / sum(peso_cuid_ocu),
-        `No Ocupado` = sum(cuidados_no_ocu) / sum(peso_cuid_no_ocu),
-        .groups = "drop"
-      ) %>%
-      tidyr::pivot_longer(cols = c(Ocupado, `No Ocupado`), names_to = "Estado", values_to = "Horas") %>%
-      mutate(texto_hover = paste0(
-        "<b>Año:</b> ", anio, "<br>",
-        "<b>Sexo:</b> ", sexo_lab, "<br>",
-        "<b>Condición:</b> ", Estado, "<br>",
-        "<b>Horas:</b> ", round(Horas, 1), " hrs"
-      ))
-
-    p <- ggplot(df_serie, aes(x = anio, y = Horas, color = sexo_lab, linetype = Estado, 
-                              group = interaction(sexo_lab, Estado), text = texto_hover)) +
-      geom_line(size = 0.4) + geom_point(size = 2) +
-      scale_color_manual(values = c("Hombre" = col_hombres, "Mujer" = col_mujeres)) +
-      theme_minimal() +
-      labs(title = "Horas Promedio de Cuidado a la semana", y = "Horas", x = "Año", color = "Género")
     
-    ggplotly(p, tooltip = "text") %>% layout(legend = list(title = list(text = "<b>Simbología</b>")))
+    # --- BLOQUE DE ZOOM (La solución al error) ---
+    if (input$entidad != "Todos") {
+      # Filtrar el polígono específico para obtener sus coordenadas
+      region <- mapa_data %>% filter(NOMGEO.x == input$entidad)
+      bbox <- st_bbox(region) # Obtiene los límites geográficos
+      
+      proxy %>% flyToBounds(
+        lng1 = bbox[["xmin"]], lat1 = bbox[["ymin"]],
+        lng2 = bbox[["xmax"]], lat2 = bbox[["ymax"]]
+      )
+    } else {
+      # Si elige "Todos", regresar a la vista nacional
+      proxy %>% flyTo(lng = -102.5, lat = 23.8, zoom = 4)
+    }
   })
+  output$serie <- renderPlotly({
+  df_serie <- datos_reactivos()$general %>% 
+    group_by(anio, sexo_lab) %>%
+    summarise(
+      Ocupado = sum(cuidados_ocu) / sum(peso_cuid_ocu),
+      `No Ocupado` = sum(cuidados_no_ocu) / sum(peso_cuid_no_ocu),
+      .groups = "drop"
+    ) %>%
+    tidyr::pivot_longer(cols = c(Ocupado, `No Ocupado`), names_to = "Estado", values_to = "Horas") %>%
+    mutate(
+      # Creamos una categoría única para el color
+      Grupo = paste(sexo_lab, Estado, sep = " - "),
+      texto_hover = paste0(
+        "<b>Año:</b> ", anio, "<br>",
+        "<b>Grupo:</b> ", Grupo, "<br>",
+        "<b>Horas:</b> ", round(Horas, 1), " hrs"
+      )
+    )
 
+  p <- ggplot(df_serie, aes(x = anio, y = Horas, 
+                            color = Grupo, # Ahora mapeamos color al grupo único
+                            group = Grupo, 
+                            text = texto_hover)) +
+    geom_line(size = 0.7) + 
+    geom_point(size = 2) +
+    # Asignamos los 4 colores manualmente
+    scale_color_manual(values = c(
+      "Hombre - Ocupado"    = col_hombres_ocu,
+      "Hombre - No Ocupado" = col_hombres_no,
+      "Mujer - Ocupado"     = col_mujeres_ocu,
+      "Mujer - No Ocupado"  = col_mujeres_no
+    )) +
+    theme_minimal() +
+    labs(
+          title = "Hora promedio de Cuidado a la semana", 
+      y = "Horas",
+      color = "Categoría"
+    )+
+    theme(axis.title.x = element_blank())
+  
+  ggplotly(p, tooltip = "text") %>% 
+    layout(legend = list(orientation = "h", y = -0.3)) # Leyenda horizontal abajo para mejor lectura
+})
   output$barras <- renderPlotly({
     df_brecha <- datos_reactivos()$filtrado %>%
       group_by(NOMGEO, sexo_lab) %>%
@@ -219,7 +257,7 @@ server <- function(input, output, session) {
       scale_fill_manual(values = c("Hombre" = col_hombres, "Mujer" = col_mujeres)) +
       theme_minimal() +
       scale_y_continuous(expand = expansion(mult = c(0, 0.4))) +
-      labs(title = "Cuidado por Grupo de Edad", x = "Grupo de Edad", y = "Horas Promedio", fill = "Género") +
+      labs(title = "Cuidado por Grupo de Edad", x = "Grupo de Edad", y = "Horas Promedio", fill = "Sexo") +
       theme(axis.text.x = element_text(angle = 45, hjust = 1), panel.grid.major.x = element_blank())
 
     ggplotly(p, tooltip = "text") %>% config(displayModeBar = FALSE)
