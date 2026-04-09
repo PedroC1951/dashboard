@@ -193,10 +193,19 @@ server <- function(input, output, session) {
       y = "Horas",
       color = "Categoría"
     )+
-    theme(axis.title.x = element_blank())
-  
-  ggplotly(p, tooltip = "text") %>% 
-    layout(legend = list(orientation = "h", y = -0.3)) # Leyenda horizontal abajo para mejor lectura
+theme(axis.title.x = element_blank()) 
+ ggplotly(p, tooltip = "text") %>% 
+  layout(
+    legend = list(
+      orientation = "h", 
+      x = 0.5,
+      xanchor = "center", 
+      y = -0.25,
+      entrywidth = 0.45,        # Cada entrada ocupa ~45% del ancho → 2 por renglón
+      entrywidthmode = "fraction"
+    ),
+    margin = list(b = 100)      # Un poco más de espacio para dos renglones
+  )
 })
   output$barras <- renderPlotly({
     df_brecha <- datos_reactivos()$filtrado %>%
@@ -250,7 +259,6 @@ server <- function(input, output, session) {
       summarise(horas = sum(cuidados_total) / sum(peso_cuidadores), .groups = "drop") %>% 
       filter(grupo_edad != "No sabe / No contesta") %>%
       mutate(label_text = paste0("<b>", sexo_lab, "</b><br>", grupo_edad, "<br>", round(horas, 1), " hrs"))
-
     p <- ggplot(df_edad, aes(x = grupo_edad, y = horas, fill = sexo_lab, text = label_text)) +
       geom_bar(stat = "identity", position = position_dodge(width = 0.9)) +
       geom_text(aes(y = horas + 1.2, label = round(horas, 1)), position = position_dodge(width = 0.9), size = 3.2, fontface = "bold") +
@@ -258,9 +266,24 @@ server <- function(input, output, session) {
       theme_minimal() +
       scale_y_continuous(expand = expansion(mult = c(0, 0.4))) +
       labs(title = "Cuidado por Grupo de Edad", x = "Grupo de Edad", y = "Horas Promedio", fill = "Sexo") +
-      theme(axis.text.x = element_text(angle = 45, hjust = 1), panel.grid.major.x = element_blank())
+     theme(
+      axis.text.x = element_text(angle = 45, hjust = 1),
+      legend.position = "none" # Desactivamos la leyenda de ggplot para controlarla con plotly
+    )
 
-    ggplotly(p, tooltip = "text") %>% config(displayModeBar = FALSE)
+  ggplotly(p, tooltip = "text") %>% 
+    layout(
+      showlegend = TRUE,
+      legend = list(
+        orientation = "h",   # 'h' de horizontal elimina el scroll vertical
+        x = 0.5,             # Centrado horizontal
+        xanchor = "center",
+        y = -0.4,            # La bajamos para que no estorbe a las etiquetas de edad
+        traceorder = "normal"
+      ),
+      margin = list(b = 100, t = 50) # Aumentamos margen inferior (b) para que quepa la leyenda y las etiquetas
+    ) %>% 
+    config(displayModeBar = FALSE)
   })
 
  indicadores <- reactive({
