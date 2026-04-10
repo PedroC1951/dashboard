@@ -169,22 +169,26 @@ server <- function(input, output, session) {
   })
  output$serie <- renderPlotly({
   df_serie <- datos_reactivos()$general %>% 
-    group_by(anio, sexo_lab) %>%
-    summarise(
-      Ocupado = sum(cuidados_ocu) / sum(peso_cuid_ocu),
-      `No Ocupado` = sum(cuidados_no_ocu) / sum(peso_cuid_no_ocu),
-      .groups = "drop"
-    ) %>%
-    tidyr::pivot_longer(cols = c(Ocupado, `No Ocupado`), names_to = "Estado", values_to = "Horas") %>%
-    mutate(
-      Grupo = paste(sexo_lab, Estado, sep = " - "),
-      texto_hover = paste0(
-        "<b>Año:</b> ", anio, "<br>",
-        "<b>Grupo:</b> ", Grupo, "<br>",
-        "<b>Horas:</b> ", round(Horas, 1), " hrs"
-      )
+  group_by(anio, sexo_lab) %>%
+  summarise(
+    Ocupado = sum(cuidados_ocu) / sum(peso_cuid_ocu),
+    `No Ocupado` = sum(cuidados_no_ocu) / sum(peso_cuid_no_ocu),
+    .groups = "drop"
+  ) %>%
+  tidyr::pivot_longer(cols = c(Ocupado, `No Ocupado`), names_to = "Estado", values_to = "Horas") %>%
+  mutate(
+    # Ajustamos el género de la palabra Estado según sexo_lab
+    Estado = ifelse(sexo_lab == "Mujer", 
+                    gsub("Ocupado", "Ocupada", Estado), 
+                    Estado),
+    # Ahora Grupo y texto_hover usarán la versión corregida
+    Grupo = paste(sexo_lab, Estado, sep = " - "),
+    texto_hover = paste0(
+      "<b>Año:</b> ", anio, "<br>",
+      "<b>Grupo:</b> ", Grupo, "<br>",
+      "<b>Horas:</b> ", round(Horas, 1), " hrs"
     )
-
+  )
   # Creamos el gráfico con la leyenda configurada en theme()
   p <- ggplot(df_serie, aes(x = anio, y = Horas, color = Grupo, group = Grupo, text = texto_hover)) +
     geom_line(linewidth = 0.2) + 
@@ -192,8 +196,8 @@ server <- function(input, output, session) {
     scale_color_manual(values = c(
       "Hombre - Ocupado"    = col_hombres_ocu,
       "Hombre - No Ocupado" = col_hombres_no,
-      "Mujer - Ocupado"     = col_mujeres_ocu,
-      "Mujer - No Ocupado"  = col_mujeres_no
+      "Mujer - Ocupada"     = col_mujeres_ocu,
+      "Mujer - No Ocupada"  = col_mujeres_no
     )) +
     theme_minimal() +
     labs(title = "Hora promedio de Cuidado a la semana", y = "Horas", color = "Categoría") +
@@ -206,7 +210,7 @@ server <- function(input, output, session) {
         tracegroupgap = 0  
       )
     )
-})
+ })
   output$barras <- renderPlotly({
     df_brecha <- datos_reactivos()$filtrado %>%
       group_by(NOMGEO, sexo_lab) %>%
@@ -246,8 +250,9 @@ server <- function(input, output, session) {
       geom_text(aes(x = Mujer, y = NOMGEO, label = round(Mujer, 1)), nudge_x = 7, hjust = 0, size = 3.5, color = col_mujeres) +
       theme_minimal() +
       expand_limits(x = c(max(df_brecha$Hombre, na.rm = TRUE) * -1.3, max(df_brecha$Mujer, na.rm = TRUE) * 1.3)) +
-      labs(title = "Brecha de Cuidados: Horas Semanales", x = "Horas (Hombres ← | → Mujeres)", y = NULL) +
+      labs(title = "Brecha de Cuidados: Horas Semanales", subtitle= "Dezliza hacia abajo", x = "Horas (Hombres ← | → Mujeres)", y = NULL) +
       theme(axis.text.y = element_blank(), plot.title = element_text(size = 10),
+    plot.subtitle = element_text(size = 8),
     panel.grid.minor = element_blank())
 
     alt_dinamica <- if(input$entidad != "Todos") 300 else 1000
