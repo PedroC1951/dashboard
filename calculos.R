@@ -2,12 +2,12 @@ library(dplyr)
 library(sf)
 library(ggplot2)
 library(officer)
+library(tidyverse)
+library(rmapshaper)
+library(arrow) 
+
 base<-readr::read_rds("~/Downloads/Base para dashboard/panel_total.rds")|>
   mutate(CVEGEO = sprintf("%02d",entidad))
-
-shp<-st_read("~/Downloads/dest22gw_c/dest22cw.shp") |> 
-  select(CVEGEO, NOMGEO)
-
 
 bd <- base %>%
   mutate(cuidados_total_horas = cuidados_h + (cuidados_m / 60),
@@ -22,33 +22,20 @@ grupo_edad = case_when(
 
 
 
-
-
-library(tidyverse)
-library(rmapshaper)
-library(arrow) # Para lectura ultra rápida
-
 # 1. Cargar y simplificar mapa
 mapa <- st_read("~/Downloads/dest22gw_c/dest22cw.shp") %>%
-  ms_simplify(keep = 0.05) %>% # Mantén solo el 5% de detalle
-  st_transform(4326) # Formato estándar para mapas web
+  ms_simplify(keep = 0.05) %>% 
+  st_transform(4326) 
 
 # 2. Resumir la base gigante (usando factor de expansión)
-# DENTRO DE TU SCRIPT DE PRE-PROCESAMIENTO
 bd_resumen <- bd %>%
   group_by(anio, entidad, CVEGEO, sexo, grupo_edad) %>%
   summarise(
-    # --- 1. BLOQUE DE OCUPACIÓN (Población Total) ---
-    # Usamos a todos para que la tasa de ocupación sea real
     peso_total_pob   = sum(factor, na.rm = TRUE),
     ocupados_total   = sum(factor[ocupado == 1], na.rm = TRUE),
-    
-    # --- 2. BLOQUE DE CUIDADOS (Población Cuidadora) ---
-    # Solo sumamos el factor de quienes reportan > 0 horas
     cuidados_total   = sum(cuidados_total_horas * factor, na.rm = TRUE),
     peso_cuidadores  = sum(factor[cuidados_total_horas > 0], na.rm = TRUE),
     
-    # Desglose por situación laboral (solo cuidadores)
     cuidados_ocu     = sum(cuidados_total_horas[ocupado == 1] * factor[ocupado == 1], na.rm = TRUE),
     peso_cuid_ocu    = sum(factor[cuidados_total_horas > 0 & ocupado == 1], na.rm = TRUE),
     
@@ -59,7 +46,6 @@ bd_resumen <- bd %>%
   ) %>%
   mutate(sexo_lab = ifelse(sexo == 1, "Hombre", "Mujer"))
 
-# Guardar con todas las variables necesarias
 
 bd_resumen <- bd_resumen %>%
   left_join(st_drop_geometry(mapa), by = "CVEGEO")

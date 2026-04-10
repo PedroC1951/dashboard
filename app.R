@@ -12,16 +12,26 @@ library(sf)
 col_hombres <- "#009EDB"
 col_mujeres <- "#E5243B"
 
-col_hombres_ocu <- "#009EDB"      # Azul original
-col_hombres_no  <- "#80CFF0"      # Azul claro
-col_mujeres_ocu <- "#E5243B"      # Rojo original
+col_hombres_ocu <- "#009EDB"     
+col_hombres_no  <- "#80CFF0"      
+col_mujeres_ocu <- "#E5243B"      
 col_mujeres_no  <- "#F28B99"
 # CARGA
 mapa <- readRDS("data/mapa_ready.rds")
 datos <- read_parquet("data/bd_resumen.parquet")
 
 ui <- page_sidebar(
-  title = "Monitor Laboral y de Cuidados",
+  title = "Monitor Laboral y de Cuidados ",
+  header = tags$style(HTML("
+    .main-footer {
+      padding: 10px 20px;
+      margin-top: 20px;
+      border-top: 1px solid #eee;
+      color: #777;
+      font-size: 0.85rem;
+      text-align: center;
+    }
+  ")),
   sidebar = sidebar(
     selectInput("anio", "Año:", c("Todos los años" = "Todos", sort(unique(datos$anio)))),
     selectInput("entidad", "Entidad:", c("Todos los estados" = "Todos", sort(unique(datos$NOMGEO)))),
@@ -29,8 +39,7 @@ ui <- page_sidebar(
     actionButton("reset", "Reiniciar Filtros", icon = icon("refresh"), class = "btn-primary")
   ),
   
-  # FILA DE KPIs (Value Boxes Estilo Moderno)
- # FILA DE KPIs (Estilo Compacto con barra lateral)
+ # FILA DE KPIs 
   layout_columns(
     fill = FALSE,
     height = "110px", 
@@ -89,6 +98,9 @@ ui <- page_sidebar(
       card_header("Tiempo de Cuidado por Grupo de Edad"),
       plotlyOutput("grafica_edad")
     )
+  ),
+  div(class = "main-footer",
+      "Fuente: Encuesta Nacional de Ocupación y Empleo, 2005-1T a 2025-4T, INEGI."
   )
 )
 
@@ -110,7 +122,7 @@ server <- function(input, output, session) {
   output$mapa <- renderLeaflet({
     leaflet(mapa) %>%
       addProviderTiles(providers$CartoDB.Positron) %>%
-      setView(lng = -102.5, lat = 23.8, zoom = 4)
+      setView(lng = -102.5, lat = 23.8, zoom = 3.5)
   })
 
   observe({
@@ -140,11 +152,11 @@ server <- function(input, output, session) {
         labelOptions = labelOptions(direction = "auto")
       )
     
-    # --- BLOQUE DE ZOOM (La solución al error) ---
+    # --- BLOQUE DE ZOOM 
     if (input$entidad != "Todos") {
       # Filtrar el polígono específico para obtener sus coordenadas
       region <- mapa_data %>% filter(NOMGEO.x == input$entidad)
-      bbox <- st_bbox(region) # Obtiene los límites geográficos
+      bbox <- st_bbox(region) 
       
       proxy %>% flyToBounds(
         lng1 = bbox[["xmin"]], lat1 = bbox[["ymin"]],
@@ -155,7 +167,7 @@ server <- function(input, output, session) {
       proxy %>% flyTo(lng = -102.5, lat = 23.8, zoom = 4)
     }
   })
-  output$serie <- renderPlotly({
+ output$serie <- renderPlotly({
   df_serie <- datos_reactivos()$general %>% 
     group_by(anio, sexo_lab) %>%
     summarise(
@@ -165,7 +177,6 @@ server <- function(input, output, session) {
     ) %>%
     tidyr::pivot_longer(cols = c(Ocupado, `No Ocupado`), names_to = "Estado", values_to = "Horas") %>%
     mutate(
-      # Creamos una categoría única para el color
       Grupo = paste(sexo_lab, Estado, sep = " - "),
       texto_hover = paste0(
         "<b>Año:</b> ", anio, "<br>",
@@ -174,13 +185,10 @@ server <- function(input, output, session) {
       )
     )
 
-  p <- ggplot(df_serie, aes(x = anio, y = Horas, 
-                            color = Grupo, # Ahora mapeamos color al grupo único
-                            group = Grupo, 
-                            text = texto_hover)) +
-    geom_line(size = 0.7) + 
-    geom_point(size = 2) +
-    # Asignamos los 4 colores manualmente
+  # Creamos el gráfico con la leyenda configurada en theme()
+  p <- ggplot(df_serie, aes(x = anio, y = Horas, color = Grupo, group = Grupo, text = texto_hover)) +
+    geom_line(linewidth = 0.2) + 
+    geom_point(size = 1) +
     scale_color_manual(values = c(
       "Hombre - Ocupado"    = col_hombres_ocu,
       "Hombre - No Ocupado" = col_hombres_no,
@@ -188,24 +196,16 @@ server <- function(input, output, session) {
       "Mujer - No Ocupado"  = col_mujeres_no
     )) +
     theme_minimal() +
-    labs(
-          title = "Hora promedio de Cuidado a la semana", 
-      y = "Horas",
-      color = "Categoría"
-    )+
-theme(axis.title.x = element_blank()) 
- ggplotly(p, tooltip = "text") %>% 
-  layout(
-    legend = list(
-      orientation = "h", 
-      x = 0.5,
-      xanchor = "center", 
-      y = -0.25,
-      entrywidth = 0.45,        # Cada entrada ocupa ~45% del ancho → 2 por renglón
-      entrywidthmode = "fraction"
-    ),
-    margin = list(b = 100)      # Un poco más de espacio para dos renglones
-  )
+    labs(title = "Hora promedio de Cuidado a la semana", y = "Horas", color = "Categoría") +
+    theme(legend.position = "right", axis.title.x = element_blank())
+
+  ggplotly(p, tooltip = "text") %>% 
+    layout(
+      legend = list(
+        valign = "middle",
+        tracegroupgap = 0  
+      )
+    )
 })
   output$barras <- renderPlotly({
     df_brecha <- datos_reactivos()$filtrado %>%
@@ -247,49 +247,35 @@ theme(axis.title.x = element_blank())
       theme_minimal() +
       expand_limits(x = c(max(df_brecha$Hombre, na.rm = TRUE) * -1.3, max(df_brecha$Mujer, na.rm = TRUE) * 1.3)) +
       labs(title = "Brecha de Cuidados: Horas Semanales", x = "Horas (Hombres ← | → Mujeres)", y = NULL) +
-      theme(axis.text.y = element_blank(), panel.grid.minor = element_blank())
+      theme(axis.text.y = element_blank(), plot.title = element_text(size = 10),
+    panel.grid.minor = element_blank())
 
     alt_dinamica <- if(input$entidad != "Todos") 300 else 1000
     ggplotly(p, tooltip = "text", height = alt_dinamica) %>% config(displayModeBar = FALSE)
   })
 
-  output$grafica_edad <- renderPlotly({
-    df_edad <- datos_reactivos()$filtrado %>%
-      group_by(grupo_edad, sexo_lab) %>%
-      summarise(horas = sum(cuidados_total) / sum(peso_cuidadores), .groups = "drop") %>% 
-      filter(grupo_edad != "No sabe / No contesta") %>%
-      mutate(label_text = paste0("<b>", sexo_lab, "</b><br>", grupo_edad, "<br>", round(horas, 1), " hrs"))
-    p <- ggplot(df_edad, aes(x = grupo_edad, y = horas, fill = sexo_lab, text = label_text)) +
-      geom_bar(stat = "identity", position = position_dodge(width = 0.9)) +
-      geom_text(aes(y = horas + 1.2, label = round(horas, 1)), position = position_dodge(width = 0.9), size = 3.2, fontface = "bold") +
-      scale_fill_manual(values = c("Hombre" = col_hombres, "Mujer" = col_mujeres)) +
-      theme_minimal() +
-      scale_y_continuous(expand = expansion(mult = c(0, 0.4))) +
-      labs(title = "Cuidado por Grupo de Edad", x = "Grupo de Edad", y = "Horas Promedio", fill = "Sexo") +
-     theme(
-      axis.text.x = element_text(angle = 45, hjust = 1),
-      legend.position = "none" # Desactivamos la leyenda de ggplot para controlarla con plotly
-    )
+output$grafica_edad <- renderPlotly({
+  df_edad <- datos_reactivos()$filtrado %>%
+    group_by(grupo_edad, sexo_lab) %>%
+    summarise(horas = sum(cuidados_total) / sum(peso_cuidadores), .groups = "drop") %>% 
+    filter(grupo_edad != "No sabe / No contesta") %>%
+    mutate(label_text = paste0("<b>", sexo_lab, "</b><br>", grupo_edad, "<br>", round(horas, 1), " hrs"))
+  
+  p <- ggplot(df_edad, aes(x = grupo_edad, y = horas, fill = sexo_lab, text = label_text)) +
+    geom_bar(stat = "identity", position = position_dodge(width = 0.9)) +
+    geom_text(aes(y = horas + 1.2, label = round(horas, 1)), 
+              position = position_dodge(width = 0.9), size = 3.2, fontface = "bold") +
+    scale_fill_manual(values = c("Hombre" = col_hombres, "Mujer" = col_mujeres), name = NULL) +
+    theme_minimal() +
+    labs(title = "Cuidado por Grupo de Edad", x = "Grupo de Edad", y = "Horas Promedio") +
+    theme( legend.title = element_blank())
 
-  ggplotly(p, tooltip = "text") %>% 
-    layout(
-      showlegend = TRUE,
-      legend = list(
-        orientation = "h",   # 'h' de horizontal elimina el scroll vertical
-        x = 0.5,             # Centrado horizontal
-        xanchor = "center",
-        y = -0.4,            # La bajamos para que no estorbe a las etiquetas de edad
-        traceorder = "normal"
-      ),
-      margin = list(b = 100, t = 50) # Aumentamos margen inferior (b) para que quepa la leyenda y las etiquetas
-    ) %>% 
+  ggplotly(p, tooltip = "text") |> 
     config(displayModeBar = FALSE)
-  })
-
+})
  indicadores <- reactive({
     df_actual <- datos_reactivos()$filtrado
     
-    # Cálculos actuales
     t_h <- (sum(df_actual$ocupados_total[df_actual$sexo == 1]) / sum(df_actual$peso_total_pob[df_actual$sexo == 1])) * 100
     t_m <- (sum(df_actual$ocupados_total[df_actual$sexo == 2]) / sum(df_actual$peso_total_pob[df_actual$sexo == 2])) * 100
     h_m_no <- sum(df_actual$cuidados_no_ocu[df_actual$sexo == 2]) / sum(df_actual$peso_cuid_no_ocu[df_actual$sexo == 2])
